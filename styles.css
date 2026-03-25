@@ -1,0 +1,101 @@
+:root {
+  color-scheme: dark;
+  --bg: #0d1117;
+  --panel: #111827;
+  --panel-2: #1f2937;
+  --text: #e5e7eb;
+  --muted: #9ca3af;
+  --accent: #7dd3fc;
+  --good: #86efac;
+}
+
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+  background: radial-gradient(circle at top, #111827, var(--bg));
+  color: var(--text);
+}
+
+.app {
+  display: grid;
+  grid-template-columns: 360px 1fr;
+  min-height: 100vh;
+}
+
+.panel {
+  background: linear-gradient(180deg, var(--panel), #0b1220);
+  border-right: 1px solid #243041;
+  padding: 16px;
+}
+
+h1 { margin: 0; }
+.subtitle { margin: 6px 0 14px; color: var(--muted); font-size: 0.9rem; }
+label { display: block; margin-top: 10px; font-size: 0.85rem; color: var(--muted); }
+input, textarea, button {
+  width: 100%;
+  margin-top: 6px;
+  border-radius: 10px;
+  border: 1px solid #334155;
+  background: #0f172a;
+  color: var(--text);
+  padding: 10px;
+}
+textarea { min-height: 80px; resize: vertical; }
+button {
+  cursor: pointer;
+  background: linear-gradient(180deg, #075985, #0c4a6e);
+  border: 1px solid #0ea5e9;
+  font-weight: 600;
+}
+button:hover { filter: brightness(1.1); }
+
+.status, .chat {
+  background: rgba(31, 41, 55, 0.45);
+  border: 1px solid #334155;
+  border-radius: 12px;
+  padding: 10px;
+  margin-top: 14px;
+}
+.status ul { list-style: none; padding: 0; margin: 0; }
+.status li { margin: 6px 0; font-size: 0.9rem; }
+.log {
+  max-height: 200px;
+  overflow: auto;
+  border: 1px solid #334155;
+  border-radius: 8px;
+  padding: 8px;
+  font-size: 0.85rem;
+  background: #020617;
+}
+.log p { margin: 0 0 8px; }
+.log .gm { color: var(--accent); }
+.log .you { color: var(--good); }
+
+.world {
+  position: relative;
+  display: grid;
+  place-items: stretch;
+}
+#view {
+  width: 100%;
+  height: 100vh;
+  display: block;
+}
+.legend {
+  position: absolute;
+  bottom: 12px;
+  left: 12px;
+  background: rgba(2, 6, 23, 0.7);
+  border: 1px solid #334155;
+  border-radius: 10px;
+  padding: 8px 12px;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+@media (max-width: 900px) {
+  .app { grid-template-columns: 1fr; }
+  .panel { border-right: none; border-bottom: 1px solid #243041; }
+  #view { height: 55vh; }
+}
