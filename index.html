@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>World Engine</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="app">
+      <aside class="panel">
+        <h1>World Engine</h1>
+        <p class="subtitle">Sims-like life sim + blocky exploration prototype</p>
+
+        <label>OpenAI API Key
+          <input id="apiKey" type="password" placeholder="sk-..." autocomplete="off" />
+        </label>
+        <label>Model
+          <input id="model" type="text" value="gpt-4.1-mini" />
+        </label>
+
+        <div class="status">
+          <h2>World Status</h2>
+          <ul>
+            <li><strong>Time:</strong> <span id="timeLabel">Day 1 · Morning</span></li>
+            <li><strong>Season:</strong> <span id="seasonLabel">Spring</span></li>
+            <li><strong>Coins:</strong> <span id="coinsLabel">12</span></li>
+            <li><strong>Wood:</strong> <span id="woodLabel">8</span></li>
+            <li><strong>Stone:</strong> <span id="stoneLabel">5</span></li>
+          </ul>
+        </div>
+
+        <div class="chat">
+          <h2>AI Game Master</h2>
+          <div id="log" class="log"></div>
+          <textarea id="actionInput" placeholder="What do you do?"></textarea>
+          <button id="sendBtn">Send Action</button>
+        </div>
+      </aside>
+
+      <main class="world">
+        <canvas id="view"></canvas>
+        <div class="legend">WASD: move camera · Mouse: rotate · Click a tile: gather/build</div>
+      </main>
+    </div>
+
+    <script type="module" src="app.js"></script>
+  </body>
+</html>
