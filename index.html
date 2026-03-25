@@ -10,37 +10,61 @@
     <div class="app">
       <aside class="panel">
         <h1>World Engine</h1>
-        <p class="subtitle">Sims-like life sim + blocky exploration prototype</p>
+        <p class="subtitle">Cozy village sim + blocky adventure sandbox</p>
 
-        <label>OpenAI API Key
-          <input id="apiKey" type="password" placeholder="sk-..." autocomplete="off" />
-        </label>
-        <label>Model
-          <input id="model" type="text" value="gpt-4.1-mini" />
-        </label>
+        <section class="card api-card">
+          <h2>AI Narrator</h2>
+          <label>OpenAI API Key
+            <input id="apiKey" type="password" placeholder="sk-..." autocomplete="off" />
+          </label>
+          <label>Model
+            <input id="model" type="text" value="gpt-4.1-mini" />
+          </label>
+        </section>
 
-        <div class="status">
+        <section class="card">
           <h2>World Status</h2>
-          <ul>
+          <ul class="stats">
             <li><strong>Time:</strong> <span id="timeLabel">Day 1 · Morning</span></li>
             <li><strong>Season:</strong> <span id="seasonLabel">Spring</span></li>
-            <li><strong>Coins:</strong> <span id="coinsLabel">12</span></li>
-            <li><strong>Wood:</strong> <span id="woodLabel">8</span></li>
-            <li><strong>Stone:</strong> <span id="stoneLabel">5</span></li>
+            <li><strong>Energy:</strong> <span id="energyLabel">12 / 12</span></li>
+            <li><strong>Coins:</strong> <span id="coinsLabel">14</span></li>
+            <li><strong>Wood:</strong> <span id="woodLabel">6</span></li>
+            <li><strong>Stone:</strong> <span id="stoneLabel">4</span></li>
+            <li><strong>Food:</strong> <span id="foodLabel">2</span></li>
           </ul>
-        </div>
+        </section>
 
-        <div class="chat">
+        <section class="card">
+          <h2>Active Quest</h2>
+          <p id="questTitle" class="quest-title"></p>
+          <p id="questDesc" class="muted"></p>
+          <div class="quest-progress"><span id="questProgress"></span></div>
+        </section>
+
+        <section class="card actions">
+          <h2>Quick Actions</h2>
+          <div class="action-grid">
+            <button data-action="rest">Rest (+energy)</button>
+            <button data-action="craft">Craft Cottage</button>
+            <button data-action="plant">Plant Seeds</button>
+            <button data-action="save">Save Game</button>
+            <button data-action="load">Load Save</button>
+          </div>
+        </section>
+
+        <section class="card chat">
           <h2>AI Game Master</h2>
           <div id="log" class="log"></div>
-          <textarea id="actionInput" placeholder="What do you do?"></textarea>
+          <textarea id="actionInput" placeholder="Try: 'Talk to Pip', 'Explore north arch', 'Sell crops'"></textarea>
           <button id="sendBtn">Send Action</button>
-        </div>
+        </section>
       </aside>
 
       <main class="world">
         <canvas id="view"></canvas>
-        <div class="legend">WASD: move camera · Mouse: rotate · Click a tile: gather/build</div>
+        <div class="legend">W/A/S/D: pan · Q/E: rotate · Click tile: interact · 1/2/3: gather/build/talk</div>
+        <div class="mode">Mode: <span id="modeLabel">Gather</span></div>
       </main>
     </div>
 

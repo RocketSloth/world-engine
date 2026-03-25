@@ -1,40 +1,59 @@
 # world-engine
 
-A lightweight browser prototype for an evolving world-building game with:
+A playable browser game prototype for an evolving world-building experience inspired by:
 
-- **Sims vibe**: life-sim status panel and AI Game Master narration.
-- **Minecraft vibe**: blocky/isometric tiles, gathering resources, and placing builds.
-- **Zelda/Farm-style progression**: action-driven time flow and narrative events.
+- **The Sims** → NPC personalities, relationships, daily life status, energy/time management.
+- **Minecraft** → blocky gathering/building loop and open-ended tile interactions.
+- **Zelda + Farm games** → light questing, exploration tone, crop growth, and progression.
 
 ## Run locally
-
-No build step required.
 
 ```bash
 python3 -m http.server 4173
 ```
 
-Then open <http://localhost:4173>.
+Open: <http://localhost:4173>
 
-## Using your own API key
+## Bring your own API key
 
-1. Enter your key in the **OpenAI API Key** field (`sk-...`).
-2. Choose a model (default: `gpt-4.1-mini`).
-3. Type an action and click **Send Action**.
+The UI includes an API key field so each player can use their own credentials.
 
-The app makes client-side requests to:
+- Enter key in **OpenAI API Key**.
+- Choose a model (default `gpt-4.1-mini`).
+- Press **Send Action** to get AI narration.
+
+The app sends requests to:
 
 - `POST https://api.openai.com/v1/responses`
 
-> Note: For production use, proxy requests through your backend so keys are never exposed in the browser.
+> For production, move API calls behind your own backend so keys are never exposed in client code.
 
 ## Controls
 
-- `W/A/S/D` move camera
-- `Q/E` rotate camera
-- Click tree/rock tiles to gather resources
-- Click grass tiles to place a farm plot (costs wood)
+### Camera / mode
 
-## Current scope
+- `W/A/S/D` pan
+- `Q/E` rotate
+- `1` Gather mode
+- `2` Build mode
+- `3` Talk mode
 
-This is a visual prototype focused on core loop + AI narration. Next steps could include NPC schedules, quests, save/load, and richer 3D visuals.
+### Interactions
+
+- Click **trees** and **rocks** in Gather mode to collect resources.
+- Click **grass** in Build mode to place farms / cottages (if resources allow).
+- Click near NPCs in Talk mode to chat and increase reputation.
+
+### Quick actions
+
+- Rest (restore energy)
+- Craft furniture (resource-to-coins)
+- Plant seeds
+- Save / Load game (localStorage)
+
+## What makes this version more playable
+
+- Persistent-feeling village loop (time, seasons, crops, villagers).
+- Clear quest objective with progress and reward.
+- Multiple interaction modes and a meaningful resource economy.
+- Save/load support and richer feedback via chat + system log.
