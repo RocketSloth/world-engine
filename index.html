@@ -3,69 +3,128 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>World Engine</title>
+    <title>Orbital One — AI Space Station Tycoon</title>
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
     <div class="app">
       <aside class="panel">
-        <h1>World Engine</h1>
-        <p class="subtitle">Cozy village sim + blocky adventure sandbox</p>
+        <header class="brand">
+          <h1>Orbital One</h1>
+          <p class="subtitle">AI-crewed space station tycoon</p>
+        </header>
 
         <section class="card api-card">
-          <h2>AI Narrator</h2>
-          <label>OpenAI API Key
-            <input id="apiKey" type="password" placeholder="sk-..." autocomplete="off" />
+          <h2>Claude API</h2>
+          <label>
+            Anthropic API Key
+            <input id="apiKey" type="password" placeholder="sk-ant-..." autocomplete="off" />
           </label>
-          <label>Model
-            <input id="model" type="text" value="gpt-4.1-mini" />
+          <label>
+            Model
+            <input id="model" type="text" value="claude-haiku-4-5-20251001" />
           </label>
+          <label class="check">
+            <input id="rememberKey" type="checkbox" /> Remember key in this browser
+          </label>
+          <p class="muted small">
+            Each NPC is an AI agent. Your key is sent directly to api.anthropic.com from
+            this page. For production, proxy this through a backend.
+          </p>
         </section>
 
         <section class="card">
-          <h2>World Status</h2>
+          <h2>Station Status</h2>
           <ul class="stats">
-            <li><strong>Time:</strong> <span id="timeLabel">Day 1 · Morning</span></li>
-            <li><strong>Season:</strong> <span id="seasonLabel">Spring</span></li>
-            <li><strong>Energy:</strong> <span id="energyLabel">12 / 12</span></li>
-            <li><strong>Coins:</strong> <span id="coinsLabel">14</span></li>
-            <li><strong>Wood:</strong> <span id="woodLabel">6</span></li>
-            <li><strong>Stone:</strong> <span id="stoneLabel">4</span></li>
-            <li><strong>Food:</strong> <span id="foodLabel">2</span></li>
+            <li><strong>Commander:</strong> <span id="playerName">You</span></li>
+            <li><strong>Level:</strong> <span id="levelLabel">1</span></li>
+            <li><strong>XP:</strong> <span id="xpLabel">0 / 100</span></li>
+            <li><strong>Credits:</strong> <span id="creditsLabel">500</span></li>
+            <li><strong>Power:</strong> <span id="powerLabel">100 / 100</span></li>
+            <li><strong>Morale:</strong> <span id="moraleLabel">80</span></li>
+            <li><strong>Research:</strong> <span id="researchLabel">0</span></li>
+            <li><strong>Stardate:</strong> <span id="stardateLabel">2742.01</span></li>
           </ul>
         </section>
 
         <section class="card">
-          <h2>Active Quest</h2>
-          <p id="questTitle" class="quest-title"></p>
-          <p id="questDesc" class="muted"></p>
-          <div class="quest-progress"><span id="questProgress"></span></div>
+          <h2>Mission Objective</h2>
+          <p id="missionTitle" class="quest-title">Warm up the station</p>
+          <p id="missionDesc" class="muted">
+            Meet your crew. Walk to any room and press <kbd>E</kbd> at the terminal to
+            talk to its AI agent.
+          </p>
+          <div class="quest-progress"><span id="missionProgress"></span></div>
         </section>
 
         <section class="card actions">
           <h2>Quick Actions</h2>
           <div class="action-grid">
-            <button data-action="rest">Rest (+energy)</button>
-            <button data-action="craft">Craft Cottage</button>
-            <button data-action="plant">Plant Seeds</button>
-            <button data-action="save">Save Game</button>
+            <button data-action="save">Save Station</button>
             <button data-action="load">Load Save</button>
+            <button data-action="reset">New Game</button>
+            <button data-action="help">Help</button>
           </div>
         </section>
 
         <section class="card chat">
-          <h2>AI Game Master</h2>
+          <h2>Station Log</h2>
           <div id="log" class="log"></div>
-          <textarea id="actionInput" placeholder="Try: 'Talk to Pip', 'Explore north arch', 'Sell crops'"></textarea>
-          <button id="sendBtn">Send Action</button>
         </section>
       </aside>
 
       <main class="world">
         <canvas id="view"></canvas>
-        <div class="legend">W/A/S/D: pan · Q/E: rotate · Click tile: interact · 1/2/3: gather/build/talk</div>
-        <div class="mode">Mode: <span id="modeLabel">Gather</span></div>
+        <div class="legend">
+          <span><kbd>A</kbd> <kbd>D</kbd> walk</span>
+          <span><kbd>W</kbd> <kbd>S</kbd> elevator</span>
+          <span><kbd>E</kbd> use terminal</span>
+          <span><kbd>Esc</kbd> close</span>
+        </div>
+        <div class="prompt" id="interactPrompt"></div>
       </main>
+    </div>
+
+    <!-- Terminal modal -->
+    <div id="terminal" class="terminal hidden" role="dialog" aria-modal="true">
+      <div class="terminal-frame">
+        <header class="terminal-header">
+          <div class="agent-tag">
+            <div id="agentAvatar" class="agent-avatar"></div>
+            <div>
+              <h3 id="agentName">Agent</h3>
+              <p id="agentTitle" class="muted small"></p>
+            </div>
+          </div>
+          <button id="closeTerminal" class="ghost" aria-label="Close">x</button>
+        </header>
+
+        <div class="terminal-body">
+          <aside class="terminal-metrics">
+            <h4>Department Metrics</h4>
+            <ul id="deptMetrics"></ul>
+            <h4>Room</h4>
+            <ul id="roomMetrics"></ul>
+            <div class="terminal-actions">
+              <button id="upgradeBtn">Upgrade Room</button>
+              <button id="assignBtn">Assign Task</button>
+            </div>
+            <p id="upgradeHint" class="muted small"></p>
+          </aside>
+
+          <section class="terminal-chat">
+            <div id="chatLog" class="chat-log"></div>
+            <form id="chatForm" class="chat-form">
+              <textarea
+                id="chatInput"
+                placeholder="Ask the agent for a status report, ideas, or to run a task..."
+                rows="2"
+              ></textarea>
+              <button type="submit">Send</button>
+            </form>
+          </section>
+        </div>
+      </div>
     </div>
 
     <script type="module" src="app.js"></script>
