@@ -1,486 +1,326 @@
-const canvas = document.getElementById('view');
-const ctx = canvas.getContext('2d');
+// Orbital One — AI-crewed space station tycoon.
+// Entry point: boots the station, wires input + render loop + terminal UI.
+
+import {
+  buildRooms,
+  renderStation,
+  STATION_WIDTH,
+  STATION_HEIGHT,
+  DECK_COUNT,
+  DECK_HEIGHT,
+  ELEVATOR_WIDTH,
+  deckFloorY,
+  inElevator,
+  roomAt,
+} from "./station.js";
+
+import {
+  defaultState,
+  defaultDeptMetrics,
+  tickEconomy,
+  awardXp,
+} from "./economy.js";
+
+import {
+  initTerminal,
+  openTerminal,
+  isTerminalOpen,
+  closeTerminal,
+} from "./terminal.js";
+
+import { AGENTS, resetAllHistories } from "./agents.js";
+
+// ---------- DOM refs ----------
+const canvas = document.getElementById("view");
+const ctx = canvas.getContext("2d");
 
 const ui = {
-  apiKey: document.getElementById('apiKey'),
-  model: document.getElementById('model'),
-  actionInput: document.getElementById('actionInput'),
-  sendBtn: document.getElementById('sendBtn'),
-  log: document.getElementById('log'),
-  modeLabel: document.getElementById('modeLabel'),
-  questTitle: document.getElementById('questTitle'),
-  questDesc: document.getElementById('questDesc'),
-  questProgress: document.getElementById('questProgress'),
-  stats: {
-    time: document.getElementById('timeLabel'),
-    season: document.getElementById('seasonLabel'),
-    energy: document.getElementById('energyLabel'),
-    coins: document.getElementById('coinsLabel'),
-    wood: document.getElementById('woodLabel'),
-    stone: document.getElementById('stoneLabel'),
-    food: document.getElementById('foodLabel')
-  }
+  apiKey: document.getElementById("apiKey"),
+  model: document.getElementById("model"),
+  rememberKey: document.getElementById("rememberKey"),
+  level: document.getElementById("levelLabel"),
+  xp: document.getElementById("xpLabel"),
+  credits: document.getElementById("creditsLabel"),
+  power: document.getElementById("powerLabel"),
+  morale: document.getElementById("moraleLabel"),
+  research: document.getElementById("researchLabel"),
+  stardate: document.getElementById("stardateLabel"),
+  missionTitle: document.getElementById("missionTitle"),
+  missionDesc: document.getElementById("missionDesc"),
+  missionProgress: document.getElementById("missionProgress"),
+  prompt: document.getElementById("interactPrompt"),
+  log: document.getElementById("log"),
 };
 
-const TILE = 34;
-const GRID = 22;
-const MODES = ['gather', 'build', 'talk'];
-
-const game = {
-  world: [],
-  camera: { x: 0, y: 0, angle: 0.2 },
-  mode: 'gather',
-  state: {
-    day: 1,
-    phase: 'Morning',
-    season: 'Spring',
-    energy: 12,
-    maxEnergy: 12,
-    coins: 14,
-    wood: 6,
-    stone: 4,
-    food: 2,
-    seeds: 2,
-    reputation: 0
+// ---------- Game state ----------
+const station = {
+  state: defaultState(),
+  rooms: buildRooms(),
+  deptMetrics: defaultDeptMetrics(),
+  mission: {
+    id: "welcome",
+    title: "Meet your AI crew",
+    desc: "Visit each terminal and talk to the agent on duty. 3 of 9 to go.",
+    target: 9,
+    visited: new Set(),
   },
-  npcs: [
-    { name: 'Pip', x: 8, y: 9, mood: 'curious', goal: 'repair pump', color: '#fca5a5', home: [8, 9], pathTick: 0 },
-    { name: 'Mara', x: 12, y: 11, mood: 'calm', goal: 'tend fields', color: '#c4b5fd', home: [12, 11], pathTick: 0 }
-  ],
-  quest: {
-    title: 'Village Kickoff',
-    desc: 'Gather 8 wood and build 1 cottage.',
-    targetWood: 8,
-    targetCottages: 1,
-    complete: false
-  }
 };
 
-function tile(x, y) {
-  return game.world.find((t) => t.x === x && t.y === y);
+const player = {
+  x: ELEVATOR_WIDTH + 40, // spawn in Airlock (top-left room)
+  deck: 0,
+  y: deckFloorY(0),
+  speed: 160, // pixels per second
+  elevatorCooldown: 0, // ms
+};
+
+const camera = { x: 0, y: 0 };
+const keys = new Set();
+
+// ---------- Persistence ----------
+const SAVE_KEY = "orbitalOneSaveV1";
+const API_KEY_STORE = "orbitalOneApiKey";
+
+function saveGame() {
+  const payload = {
+    state: station.state,
+    rooms: serializableRooms(station.rooms),
+    deptMetrics: station.deptMetrics,
+    mission: {
+      ...station.mission,
+      visited: [...station.mission.visited],
+    },
+    player: { x: player.x, deck: player.deck },
+  };
+  localStorage.setItem(SAVE_KEY, JSON.stringify(payload));
+  log("sys", "Station configuration saved.");
 }
 
-function seedWorld() {
-  game.world.length = 0;
-  for (let y = 0; y < GRID; y++) {
-    for (let x = 0; x < GRID; x++) {
-      const edge = x < 2 || y < 2 || x > GRID - 3 || y > GRID - 3;
-      let type = edge ? 'water' : 'grass';
-      const r = Math.random();
-      if (!edge && r > 0.84) type = 'tree';
-      if (!edge && r > 0.92) type = 'rock';
-      game.world.push({ x, y, type, build: null, crop: null });
-    }
+function serializableRooms(rooms) {
+  const out = {};
+  for (const [id, r] of Object.entries(rooms)) {
+    out[id] = { level: r.level, online: r.online };
   }
-
-  // village center
-  tile(9, 10).build = 'well';
-  tile(10, 10).build = 'path';
-  tile(11, 10).build = 'path';
-  tile(10, 11).build = 'path';
-  tile(11, 11).build = 'path';
+  return out;
 }
 
-function iso(x, y) {
-  const cx = x - game.camera.x;
-  const cy = y - game.camera.y;
-  const a = game.camera.angle;
-  const rx = cx * Math.cos(a) - cy * Math.sin(a);
-  const ry = cx * Math.sin(a) + cy * Math.cos(a);
-  return {
-    x: (rx - ry) * (TILE / 2) + canvas.clientWidth / 2,
-    y: (rx + ry) * (TILE / 4) + 90
-  };
-}
-
-function drawDiamond(p, fill) {
-  ctx.beginPath();
-  ctx.moveTo(p.x, p.y - TILE / 4);
-  ctx.lineTo(p.x + TILE / 2, p.y);
-  ctx.lineTo(p.x, p.y + TILE / 4);
-  ctx.lineTo(p.x - TILE / 2, p.y);
-  ctx.closePath();
-  ctx.fillStyle = fill;
-  ctx.fill();
-  ctx.strokeStyle = 'rgba(15, 23, 42, 0.45)';
-  ctx.stroke();
-}
-
-function phaseTint() {
-  const tint = {
-    Morning: 'rgba(255, 230, 175, 0.08)',
-    Noon: 'rgba(180, 220, 255, 0.03)',
-    Evening: 'rgba(255, 170, 120, 0.12)',
-    Night: 'rgba(30, 50, 90, 0.26)'
-  };
-  return tint[game.state.phase] || 'transparent';
-}
-
-function drawWorld() {
-  ctx.clearRect(0, 0, canvas.clientWidth, canvas.clientHeight);
-  for (const t of game.world) {
-    const p = iso(t.x, t.y);
-    let color = '#4ade80';
-    if (t.type === 'water') color = '#38bdf8';
-    if (t.type === 'tree') color = '#65a30d';
-    if (t.type === 'rock') color = '#94a3b8';
-    drawDiamond(p, color);
-
-    if (t.type === 'tree') {
-      ctx.fillStyle = '#14532d';
-      ctx.fillRect(p.x - 3, p.y - 16, 6, 12);
-      ctx.beginPath();
-      ctx.arc(p.x, p.y - 19, 9, 0, Math.PI * 2);
-      ctx.fillStyle = '#22c55e';
-      ctx.fill();
-    }
-
-    if (t.type === 'rock') {
-      ctx.beginPath();
-      ctx.ellipse(p.x, p.y - 8, 9, 6, 0, 0, Math.PI * 2);
-      ctx.fillStyle = '#cbd5e1';
-      ctx.fill();
-    }
-
-    if (t.build === 'farm') {
-      ctx.fillStyle = '#7c2d12';
-      ctx.fillRect(p.x - 8, p.y - 12, 16, 8);
-      if (t.crop === 'sprout') {
-        ctx.fillStyle = '#84cc16';
-        ctx.fillRect(p.x - 1, p.y - 15, 2, 4);
-      }
-      if (t.crop === 'ripe') {
-        ctx.fillStyle = '#facc15';
-        ctx.fillRect(p.x - 3, p.y - 16, 6, 6);
+function loadGame() {
+  const raw = localStorage.getItem(SAVE_KEY);
+  if (!raw) {
+    log("sys", "No save found yet. Playing a fresh station.");
+    return false;
+  }
+  try {
+    const s = JSON.parse(raw);
+    station.state = { ...defaultState(), ...s.state };
+    station.deptMetrics = { ...defaultDeptMetrics(), ...s.deptMetrics };
+    // Only pull mutable per-room fields; geometry stays from buildRooms()
+    station.rooms = buildRooms();
+    for (const [id, data] of Object.entries(s.rooms || {})) {
+      if (station.rooms[id]) {
+        station.rooms[id].level = data.level ?? 1;
+        station.rooms[id].online = data.online ?? true;
       }
     }
-
-    if (t.build === 'cottage') {
-      ctx.fillStyle = '#fef3c7';
-      ctx.fillRect(p.x - 11, p.y - 22, 22, 15);
-      ctx.fillStyle = '#92400e';
-      ctx.fillRect(p.x - 8, p.y - 7, 16, 6);
+    station.mission = {
+      ...station.mission,
+      ...s.mission,
+      visited: new Set(s.mission?.visited || []),
+    };
+    if (s.player) {
+      player.x = s.player.x;
+      player.deck = s.player.deck;
+      player.y = deckFloorY(player.deck);
     }
-
-    if (t.build === 'well') {
-      ctx.fillStyle = '#d1d5db';
-      ctx.fillRect(p.x - 7, p.y - 14, 14, 8);
-      ctx.fillStyle = '#475569';
-      ctx.fillRect(p.x - 5, p.y - 19, 10, 5);
-    }
+    log("sys", "Save loaded. Welcome back, Commander.");
+    return true;
+  } catch (err) {
+    log("err", `Failed to load save: ${err.message}`);
+    return false;
   }
-
-  // NPCs
-  for (const npc of game.npcs) {
-    const p = iso(npc.x, npc.y);
-    ctx.beginPath();
-    ctx.arc(p.x, p.y - 11, 6, 0, Math.PI * 2);
-    ctx.fillStyle = npc.color;
-    ctx.fill();
-    ctx.fillStyle = '#111827';
-    ctx.fillRect(p.x - 4, p.y - 8, 8, 14);
-
-    ctx.fillStyle = 'rgba(15, 23, 42, 0.8)';
-    ctx.fillRect(p.x - 18, p.y - 34, 36, 12);
-    ctx.fillStyle = '#dbeafe';
-    ctx.font = '10px sans-serif';
-    ctx.fillText(npc.name, p.x - 14, p.y - 25);
-  }
-
-  // day/night overlay
-  ctx.fillStyle = phaseTint();
-  ctx.fillRect(0, 0, canvas.clientWidth, canvas.clientHeight);
 }
 
-function nearestTile(px, py) {
-  let best = null;
-  let dist = Infinity;
-  for (const t of game.world) {
-    const p = iso(t.x, t.y);
-    const d = Math.hypot(px - p.x, py - p.y);
-    if (d < dist) {
-      best = t;
-      dist = d;
-    }
-  }
-  return dist < TILE ? best : null;
+function resetGame() {
+  localStorage.removeItem(SAVE_KEY);
+  station.state = defaultState();
+  station.rooms = buildRooms();
+  station.deptMetrics = defaultDeptMetrics();
+  station.mission = {
+    id: "welcome",
+    title: "Meet your AI crew",
+    desc: "Visit each terminal and talk to the agent on duty.",
+    target: Object.keys(station.rooms).length,
+    visited: new Set(),
+  };
+  player.x = ELEVATOR_WIDTH + 40;
+  player.deck = 0;
+  player.y = deckFloorY(0);
+  resetAllHistories();
+  log("sys", "New game started. Welcome aboard Orbital One.");
+  updateHUD();
 }
 
-function addLog(type, msg) {
-  const p = document.createElement('p');
+// ---------- HUD ----------
+function log(type, msg) {
+  const p = document.createElement("p");
   p.className = type;
-  const prefix = type === 'you' ? 'You' : type === 'sys' ? 'System' : 'GM';
+  const prefix =
+    type === "you" ? "You" :
+    type === "gm" ? "Station" :
+    type === "err" ? "Alert" : "System";
   p.textContent = `${prefix}: ${msg}`;
   ui.log.prepend(p);
-}
-
-function updateQuestUI() {
-  const cottages = game.world.filter((t) => t.build === 'cottage').length;
-  const woodPart = Math.min(1, game.state.wood / game.quest.targetWood);
-  const cottagePart = Math.min(1, cottages / game.quest.targetCottages);
-  const progress = Math.round((woodPart * 0.45 + cottagePart * 0.55) * 100);
-
-  ui.questTitle.textContent = game.quest.title;
-  ui.questDesc.textContent = game.quest.desc;
-  ui.questProgress.style.width = `${progress}%`;
-
-  if (progress === 100 && !game.quest.complete) {
-    game.quest.complete = true;
-    game.state.coins += 20;
-    game.state.reputation += 1;
-    addLog('sys', 'Quest complete! +20 coins. New villager paths open in the east grove.');
-  }
+  // keep log bounded
+  while (ui.log.childNodes.length > 80) ui.log.removeChild(ui.log.lastChild);
 }
 
 function updateHUD() {
-  ui.stats.time.textContent = `Day ${game.state.day} · ${game.state.phase}`;
-  ui.stats.season.textContent = game.state.season;
-  ui.stats.energy.textContent = `${game.state.energy} / ${game.state.maxEnergy}`;
-  ui.stats.coins.textContent = game.state.coins;
-  ui.stats.wood.textContent = game.state.wood;
-  ui.stats.stone.textContent = game.state.stone;
-  ui.stats.food.textContent = game.state.food;
-  ui.modeLabel.textContent = game.mode[0].toUpperCase() + game.mode.slice(1);
-  updateQuestUI();
+  const s = station.state;
+  ui.level.textContent = s.level;
+  ui.xp.textContent = `${s.xp} / ${s.xpToNext}`;
+  ui.credits.textContent = s.credits;
+  ui.power.textContent = `${s.power} / ${s.powerMax}`;
+  ui.morale.textContent = s.morale;
+  ui.research.textContent = s.research;
+  ui.stardate.textContent = s.stardate.toFixed(2);
+
+  // mission progress
+  const visitedCount = station.mission.visited.size;
+  const target = station.mission.target;
+  const pct = Math.round((visitedCount / target) * 100);
+  ui.missionTitle.textContent = station.mission.title;
+  ui.missionDesc.textContent =
+    visitedCount >= target
+      ? "Full crew contact established. Open the Help quick action for what's next."
+      : `${visitedCount}/${target} crew terminals accessed.`;
+  ui.missionProgress.style.width = `${Math.min(100, pct)}%`;
 }
 
-function advanceTime() {
-  const phases = ['Morning', 'Noon', 'Evening', 'Night'];
-  const idx = phases.indexOf(game.state.phase);
-  game.state.phase = phases[(idx + 1) % phases.length];
-  if (game.state.phase === 'Morning') {
-    game.state.day += 1;
-    game.state.energy = game.state.maxEnergy;
-    growCrops();
-    runDailyNPCChoices();
-    if (game.state.day % 8 === 0) {
-      const seasons = ['Spring', 'Summer', 'Autumn', 'Winter'];
-      const si = seasons.indexOf(game.state.season);
-      game.state.season = seasons[(si + 1) % seasons.length];
-      addLog('sys', `Season changed to ${game.state.season}.`);
-    }
-  }
+// ---------- Interaction ----------
+function nearestInteractableRoom() {
+  // Player can interact with a terminal if they're standing in that room.
+  if (inElevator(player.x)) return null;
+  const r = roomAt(station.rooms, player.x, player.y - 2);
+  return r && r.online ? r : null;
 }
 
-function spendEnergy(n = 1) {
-  if (game.state.energy < n) {
-    addLog('sys', 'Too tired. Rest or sleep to recover energy.');
-    return false;
+function tryInteract() {
+  const room = nearestInteractableRoom();
+  if (!room) return;
+  // mark mission visited
+  if (!station.mission.visited.has(room.id)) {
+    station.mission.visited.add(room.id);
+    awardXp(station, 10, log);
+    log("gm", `Made first contact at ${room.name}. +10 XP.`);
+    updateHUD();
   }
-  game.state.energy -= n;
-  return true;
+  openTerminal(room.id);
 }
 
-function interactTile(t) {
-  if (!t || t.type === 'water') return;
-
-  if (game.mode === 'gather') {
-    if (!spendEnergy(1)) return;
-    if (t.type === 'tree') {
-      t.type = 'grass';
-      game.state.wood += 2;
-      addLog('gm', 'You chop a tree and collect +2 wood.');
-    } else if (t.type === 'rock') {
-      t.type = 'grass';
-      game.state.stone += 2;
-      addLog('gm', 'You mine stone from a boulder (+2).');
-    } else if (t.build === 'farm' && t.crop === 'ripe') {
-      t.crop = null;
-      game.state.food += 2;
-      game.state.coins += 3;
-      addLog('gm', 'Harvested ripe crops (+2 food, +3 coins).');
-    }
-  }
-
-  if (game.mode === 'build') {
-    if (!spendEnergy(2)) return;
-    if (!t.build && t.type === 'grass' && game.state.wood >= 2) {
-      t.build = 'farm';
-      game.state.wood -= 2;
-      addLog('gm', 'You place a new farm plot.');
-    } else if (!t.build && t.type === 'grass' && game.state.wood >= 6 && game.state.stone >= 4) {
-      t.build = 'cottage';
-      game.state.wood -= 6;
-      game.state.stone -= 4;
-      addLog('gm', 'A cozy cottage rises from your plans.');
-    } else {
-      addLog('sys', 'Not enough resources or invalid tile for building.');
-    }
-  }
-
-  if (game.mode === 'talk') {
-    const near = game.npcs.find((n) => Math.hypot(n.x - t.x, n.y - t.y) <= 1.5);
-    if (near) {
-      const lines = {
-        Pip: ['Need gears? Bring me stone and I can help.', 'The pump sings when the moon is high.'],
-        Mara: ['Soil is happy today. Want to help me plant?', 'If crops glow gold, harvest before night!']
-      };
-      const bank = lines[near.name] || ['Hello there, builder.'];
-      addLog('gm', `${near.name}: ${bank[Math.floor(Math.random() * bank.length)]}`);
-      game.state.reputation += 0.1;
-    } else {
-      addLog('sys', 'No villager close enough to chat.');
-    }
-  }
-
-  advanceTime();
-  updateHUD();
-}
-
-function growCrops() {
-  for (const t of game.world) {
-    if (t.build === 'farm') {
-      if (!t.crop && Math.random() > 0.75) t.crop = 'sprout';
-      else if (t.crop === 'sprout') t.crop = 'ripe';
-    }
+function updateInteractPrompt() {
+  const room = nearestInteractableRoom();
+  if (room && !isTerminalOpen()) {
+    const agent = AGENTS[room.agentId];
+    ui.prompt.textContent = `Press E to access ${room.name} terminal (${agent.name})`;
+    ui.prompt.classList.add("show");
+  } else {
+    ui.prompt.classList.remove("show");
   }
 }
 
-function runDailyNPCChoices() {
-  for (const npc of game.npcs) {
-    npc.mood = ['curious', 'busy', 'cheerful'][Math.floor(Math.random() * 3)];
-    const steps = [
-      [1, 0],
-      [-1, 0],
-      [0, 1],
-      [0, -1]
-    ];
-    const move = steps[Math.floor(Math.random() * steps.length)];
-    const nx = Math.max(2, Math.min(GRID - 3, npc.x + move[0]));
-    const ny = Math.max(2, Math.min(GRID - 3, npc.y + move[1]));
-    if (tile(nx, ny)?.type !== 'water') {
-      npc.x = nx;
-      npc.y = ny;
-    }
-  }
-}
-
-function quickAction(action) {
-  if (action === 'rest') {
-    game.state.energy = Math.min(game.state.maxEnergy, game.state.energy + 4);
-    addLog('gm', 'You rest by the well. Energy restored.');
-  }
-  if (action === 'plant') {
-    const farm = game.world.find((t) => t.build === 'farm' && !t.crop);
-    if (farm && game.state.seeds > 0) {
-      farm.crop = 'sprout';
-      game.state.seeds -= 1;
-      addLog('gm', 'You plant moonbean seeds in a farm plot.');
-    } else {
-      addLog('sys', 'You need an empty farm and seeds to plant.');
-    }
-  }
-  if (action === 'craft') {
-    if (game.state.wood >= 4 && game.state.stone >= 2) {
-      game.state.wood -= 4;
-      game.state.stone -= 2;
-      game.state.coins += 6;
-      addLog('gm', 'You craft furniture and sell it at the market (+6 coins).');
-    } else {
-      addLog('sys', 'Need 4 wood + 2 stone to craft furniture.');
-    }
-  }
-  if (action === 'save') {
-    localStorage.setItem('worldEngineSave', JSON.stringify(game));
-    addLog('sys', 'Game saved to local storage.');
-  }
-  if (action === 'load') {
-    const raw = localStorage.getItem('worldEngineSave');
-    if (!raw) {
-      addLog('sys', 'No save found yet.');
-    } else {
-      const saved = JSON.parse(raw);
-      Object.assign(game, saved);
-      addLog('sys', 'Save loaded. Welcome back.');
-    }
-  }
-  advanceTime();
-  updateHUD();
-}
-
-async function requestNarration(action) {
-  const key = ui.apiKey.value.trim();
-  if (!key) {
-    addLog('sys', 'Add your API key for dynamic narration.');
-    return;
-  }
-
-  try {
-    const payload = {
-      model: ui.model.value.trim() || 'gpt-4.1-mini',
-      input: `You are a whimsical game master for a cozy life sim + block world. Current state: day ${game.state.day}, ${game.state.phase}, season ${game.state.season}, resources wood=${game.state.wood}, stone=${game.state.stone}, coins=${game.state.coins}, food=${game.state.food}, energy=${game.state.energy}. NPCs: ${game.npcs.map((n) => `${n.name}(${n.mood})`).join(', ')}. Active quest: ${game.quest.title}. Player action: ${action}. Reply in 110-170 words with vivid scene + 3 suggested actions.`
-    };
-
-    const res = await fetch('https://api.openai.com/v1/responses', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${key}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(payload)
-    });
-
-    if (!res.ok) {
-      addLog('sys', `API error (${res.status}). Check key/model and try again.`);
+// ---------- Input ----------
+function setupInput() {
+  window.addEventListener("keydown", (e) => {
+    const k = e.key.toLowerCase();
+    if (isTerminalOpen()) {
+      // let terminal handle its own keys, but allow Escape to close (terminal.js)
       return;
     }
+    keys.add(k);
 
-    const data = await res.json();
-    addLog('gm', data.output_text || 'The village waits for your next move.');
-  } catch (err) {
-    addLog('sys', `Request failed: ${err.message}`);
-  }
-}
-
-function handleChatAction() {
-  const action = ui.actionInput.value.trim();
-  if (!action) return;
-  ui.actionInput.value = '';
-  addLog('you', action);
-
-  if (/status|inventory/i.test(action)) {
-    addLog('sys', `Inventory: ${game.state.wood} wood, ${game.state.stone} stone, ${game.state.food} food, ${game.state.coins} coins.`);
-  }
-
-  if (/sell/i.test(action) && game.state.food > 0) {
-    const sold = game.state.food;
-    game.state.food = 0;
-    game.state.coins += sold * 3;
-    addLog('gm', `You sell ${sold} food at market and earn ${sold * 3} coins.`);
-    advanceTime();
-  }
-
-  updateHUD();
-  requestNarration(action);
-}
-
-function setupInput() {
-  window.addEventListener('keydown', (e) => {
-    const k = e.key.toLowerCase();
-    if (k === 'a') game.camera.x -= 0.45;
-    if (k === 'd') game.camera.x += 0.45;
-    if (k === 'w') game.camera.y -= 0.45;
-    if (k === 's') game.camera.y += 0.45;
-    if (k === 'q') game.camera.angle -= 0.08;
-    if (k === 'e') game.camera.angle += 0.08;
-    if (k === '1') game.mode = MODES[0];
-    if (k === '2') game.mode = MODES[1];
-    if (k === '3') game.mode = MODES[2];
-    updateHUD();
+    if (k === "e") {
+      e.preventDefault();
+      tryInteract();
+    }
   });
 
-  canvas.addEventListener('click', (e) => {
-    const rect = canvas.getBoundingClientRect();
-    const t = nearestTile(e.clientX - rect.left, e.clientY - rect.top);
-    interactTile(t);
+  window.addEventListener("keyup", (e) => {
+    keys.delete(e.key.toLowerCase());
   });
 
-  ui.sendBtn.addEventListener('click', handleChatAction);
+  document.querySelectorAll("[data-action]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const a = btn.dataset.action;
+      if (a === "save") saveGame();
+      else if (a === "load") {
+        if (loadGame()) updateHUD();
+      } else if (a === "reset") {
+        if (confirm("Start a new game? This deletes your save.")) resetGame();
+      } else if (a === "help") {
+        log(
+          "sys",
+          "Walk with A/D. Use the central elevator (W/S) to change decks. Press E at a terminal to chat with that room's AI agent. Upgrade rooms to boost revenue."
+        );
+      }
+    });
+  });
 
-  document.querySelectorAll('[data-action]').forEach((button) => {
-    button.addEventListener('click', () => quickAction(button.dataset.action));
+  // API key persistence
+  const saved = localStorage.getItem(API_KEY_STORE);
+  if (saved) {
+    ui.apiKey.value = saved;
+    ui.rememberKey.checked = true;
+  }
+  ui.rememberKey.addEventListener("change", () => {
+    if (ui.rememberKey.checked && ui.apiKey.value.trim()) {
+      localStorage.setItem(API_KEY_STORE, ui.apiKey.value.trim());
+    } else {
+      localStorage.removeItem(API_KEY_STORE);
+    }
+  });
+  ui.apiKey.addEventListener("change", () => {
+    if (ui.rememberKey.checked && ui.apiKey.value.trim()) {
+      localStorage.setItem(API_KEY_STORE, ui.apiKey.value.trim());
+    }
   });
 }
+
+// ---------- Movement ----------
+function updatePlayer(dt) {
+  if (isTerminalOpen()) return;
+
+  const left = keys.has("a") || keys.has("arrowleft");
+  const right = keys.has("d") || keys.has("arrowright");
+  const up = keys.has("w") || keys.has("arrowup");
+  const down = keys.has("s") || keys.has("arrowdown");
+
+  if (left) player.x -= player.speed * dt;
+  if (right) player.x += player.speed * dt;
+  player.x = Math.max(8, Math.min(STATION_WIDTH - 8, player.x));
+
+  // Elevator: only when player is in the shaft
+  if (inElevator(player.x)) {
+    player.elevatorCooldown -= dt * 1000;
+    if (player.elevatorCooldown <= 0) {
+      if (up && player.deck > 0) {
+        player.deck -= 1;
+        player.y = deckFloorY(player.deck);
+        player.elevatorCooldown = 220;
+      } else if (down && player.deck < DECK_COUNT - 1) {
+        player.deck += 1;
+        player.y = deckFloorY(player.deck);
+        player.elevatorCooldown = 220;
+      }
+    }
+  }
+
+  player.y = deckFloorY(player.deck);
+}
+
+// ---------- Loop ----------
+let lastFrame = performance.now();
+let lastTick = performance.now();
+const TICK_MS = 4000;
 
 function resize() {
   canvas.width = canvas.clientWidth * devicePixelRatio;
@@ -488,15 +328,59 @@ function resize() {
   ctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
 }
 
-function loop() {
-  drawWorld();
+function updateCamera() {
+  // Center the station within the visible canvas. Add small gentle follow on Y
+  // so the current deck is highlighted without the full station going offscreen.
+  const cw = canvas.clientWidth;
+  const ch = canvas.clientHeight;
+  camera.x = (STATION_WIDTH - cw) / 2;
+  camera.y = (STATION_HEIGHT - ch) / 2;
+}
+
+function loop(now) {
+  const dt = Math.min(0.05, (now - lastFrame) / 1000);
+  lastFrame = now;
+
+  updatePlayer(dt);
+  updateCamera();
+
+  // Economy tick
+  if (now - lastTick > TICK_MS) {
+    lastTick = now;
+    tickEconomy(station, log);
+    updateHUD();
+  }
+
+  // Which room has the highlighted terminal?
+  const nearest = nearestInteractableRoom();
+  renderStation(ctx, camera, station, player, nearest?.id || null);
+
+  updateInteractPrompt();
   requestAnimationFrame(loop);
 }
 
-seedWorld();
-setupInput();
-resize();
-updateHUD();
-addLog('gm', 'Welcome back. This world now has quests, villagers, saves, crops, and multiple play modes.');
-requestAnimationFrame(loop);
-window.addEventListener('resize', resize);
+// ---------- Boot ----------
+function boot() {
+  setupInput();
+  initTerminal({
+    getStation: () => station,
+    getApiConfig: () => ({
+      apiKey: ui.apiKey.value.trim(),
+      model: ui.model.value.trim() || "claude-haiku-4-5-20251001",
+    }),
+    log,
+    onUpgraded: updateHUD,
+  });
+  loadGame(); // safe if no save
+  updateHUD();
+  resize();
+  log("gm", "Orbital One online. Walk (A/D), ride the lift (W/S), press E at a terminal.");
+  requestAnimationFrame((t) => {
+    lastFrame = t;
+    lastTick = t;
+    loop(t);
+  });
+}
+
+window.addEventListener("resize", resize);
+boot();
